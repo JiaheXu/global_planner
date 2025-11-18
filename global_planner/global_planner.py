@@ -1,12 +1,14 @@
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import NavSatFix
-from nav_msgs.msg import Path
+from nav_msgs.msg import Path as NavPath
 from geometry_msgs.msg import PoseStamped
+from std_msgs.msg import Bool
 import math
 import heapq
 import numpy as np
 from datetime import datetime
+from pathlib import Path
 
 
 class GlobalPlanner(Node):
@@ -14,17 +16,31 @@ class GlobalPlanner(Node):
         super().__init__('global_planner')
 
         # Publishers
-        self.path_pub = self.create_publisher(Path, 'planned_path', 10)
+        self.path_pub = self.create_publisher(NavPath, 'planned_path', 10)
 
         # Subscribers
         self.create_subscription(NavSatFix, '/gps_raw', self.gps_callback, 10)
         self.create_subscription(NavSatFix, 'nav_goal', self.goal_callback, 10)
+        self.create_subscription(Bool, 'replan_request', self.replan_callback, 10)
 
         # Load precomputed graph
-        self.points = np.load("points.npy")
-        self.neighbors = np.load("neighbors.npy", allow_pickle=True)
+        config_dir = Path('~/javis_ws/src/global_planner/config').expanduser()
+        points_path = config_dir / 'points.npy'
+        neighbors_path = config_dir / 'neighbors.npy'
+
+        if not points_path.exists() or not neighbors_path.exists():
+            message = (
+                f"Graph data not found in {config_dir}. "
+                "Expected points.npy and neighbors.npy."
+            )
+            self.get_logger().fatal(message)
+            raise FileNotFoundError(message)
+
+        self.points = np.load(points_path)
+        self.neighbors = np.load(neighbors_path, allow_pickle=True)
 
         self.current_pose = None
+        self.current_goal = None
         self.get_logger().info("✅ GlobalPlanner started. Listening for nav_goal.")
 
     def gps_callback(self, msg: NavSatFix):
@@ -74,7 +90,7 @@ class GlobalPlanner(Node):
         Publish the path as a Path message (lon→x, lat→y)
         and save the GPS waypoints into a timestamped npy file.
         """
-        path_msg = Path()
+        path_msg = NavPath()
         path_msg.header.frame_id = "map"
 
         gps_waypoints = []
@@ -103,21 +119,42 @@ class GlobalPlanner(Node):
 
     def goal_callback(self, msg: NavSatFix):
         """Handle new goal: plan path and publish it."""
-        if self.current_pose is None:
-            self.get_logger().warn("⚠️ No current GPS yet, ignoring goal.")
+        self.current_goal = (msg.latitude, msg.longitude)
+        if not self._plan_and_publish("new goal"):
+            self.get_logger().warn(f"⚠️ Unable to plan path to goal ({msg.latitude}, {msg.longitude}).")
+
+    def replan_callback(self, msg: Bool):
+        """Handle replan requests from downstream planners."""
+        if not msg.data:
             return
+        if self.current_goal is None:
+            self.get_logger().warn("⚠️ Replan requested but no goal is set.")
+            return
+        self.get_logger().info("♻️ Replan request received; recomputing path.")
+        self._plan_and_publish("replan request")
 
+    def _plan_and_publish(self, reason: str) -> bool:
+        """Plan a path with the current pose/goal and publish it."""
+        if self.current_pose is None:
+            self.get_logger().warn("⚠️ No current GPS yet, cannot plan.")
+            return False
+        if self.current_goal is None:
+            self.get_logger().warn("⚠️ No goal available, cannot plan.")
+            return False
+
+        goal_lat, goal_lon = self.current_goal
         start_idx = self.find_nearest_node(self.current_pose[0], self.current_pose[1])
-        goal_idx = self.find_nearest_node(msg.latitude, msg.longitude)
+        goal_idx = self.find_nearest_node(goal_lat, goal_lon)
 
-        self.get_logger().info(f"Planning path from {start_idx} → {goal_idx}")
+        self.get_logger().info(f"Planning path ({reason}) from {start_idx} → {goal_idx}")
 
         path = self.plan_path(start_idx, goal_idx)
         if not path:
-            self.get_logger().warn(f"⚠️ No path found to goal ({msg.latitude}, {msg.longitude})")
-            return
+            self.get_logger().warn(f"⚠️ No path found to goal ({goal_lat}, {goal_lon})")
+            return False
 
         self.publish_path(path)
+        return True
 
 
 def main():

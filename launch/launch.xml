@@ -1,0 +1,12 @@
+<launch>
+  
+
+    <node pkg="far_planner" exec="global_planner" name="global_planner_node" output="screen">
+    </node>
+
+    <node pkg="far_planner" exec="far_planner" name="far_planner_node" output="screen">
+    </node>
+
+
+</launch>
+
