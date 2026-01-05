@@ -1,0 +1,164 @@
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import NavSatFix
+from nav_msgs.msg import Path as NavPath
+from geometry_msgs.msg import PoseStamped
+import math
+import heapq
+import numpy as np
+from datetime import datetime
+from pathlib import Path
+import pickle
+
+class GlobalPlanner(Node):
+    def __init__(self):
+        super().__init__('global_planner')
+
+        # Publishers
+        self.path_pub = self.create_publisher(NavPath, 'planned_path', 10)
+
+        # Subscribers
+        self.create_subscription(NavSatFix, '/gps_raw', self.gps_callback, 10)
+        self.create_subscription(NavSatFix, 'nav_goal', self.goal_callback, 10)
+
+        # Load precomputed graph
+        config_dir = Path('~/javis_ws/src/global_planner/global_planner').expanduser()
+        points_path = config_dir / 'points.npy'
+        neighbors_path = config_dir / 'neighbors.npy'
+
+        if not points_path.exists() or not neighbors_path.exists():
+            message = (
+                f"Graph data not found in {config_dir}. "
+                "Expected points.npy and neighbors.npy."
+            )
+            self.get_logger().fatal(message)
+            raise FileNotFoundError(message)
+
+        self.points = np.load(points_path, allow_pickle=True)
+        self.neighbors = np.load(neighbors_path, allow_pickle=True)
+
+        self.current_pose = None
+        self.last_goal = None
+
+        # Auto replan every 3 seconds
+        self.create_timer(3.0, self.replan_timer_cb)
+        self.get_logger().info("⏱️ Auto-replan timer started (10s)")
+
+        self.get_logger().info("✅ GlobalPlanner started. Listening for nav_goal.")
+
+    def gps_callback(self, msg: NavSatFix):
+        """Update robot's current GPS position."""
+        self.current_pose = (msg.latitude, msg.longitude)
+
+    def haversine(self, lat1, lon1, lat2, lon2):
+        """Compute great-circle distance in meters between two GPS points."""
+        R = 6371000
+        phi1, phi2 = math.radians(lat1), math.radians(lat2)
+        dphi = math.radians(lat2 - lat1)
+        dlambda = math.radians(lon2 - lon1)
+        a = (math.sin(dphi / 2) ** 2 +
+             math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2)
+        return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+    def find_nearest_node(self, lat, lon):
+        """Find closest node index to given GPS coordinate."""
+        min_d = float('inf')
+        nearest = 0
+        for i, (nlat, nlon) in enumerate(self.points):
+            d = self.haversine(lat, lon, nlat, nlon)
+            if d < min_d:
+                min_d = d
+                nearest = i
+        return nearest
+
+    def plan_path(self, start_idx, goal_idx):
+        """Dijkstra search over neighbor list graph."""
+        pq = [(0, start_idx, [])]
+        visited = set()
+        while pq:
+            cost, node, path = heapq.heappop(pq)
+            if node in visited:
+                continue
+            visited.add(node)
+            path = path + [node]
+            if node == goal_idx:
+                return path
+            for nb, dist in self.neighbors[node]:
+                if nb not in visited:
+                    heapq.heappush(pq, (cost + dist, nb, path))
+        return []
+
+    def publish_path(self, path_ids):
+        """
+        Publish the path as a Path message (lon→x, lat→y)
+        and save the GPS waypoints into a timestamped npy file.
+        """
+        path_msg = NavPath()
+        path_msg.header.frame_id = "map"
+
+        gps_waypoints = []
+
+        for pid in path_ids:
+            lat, lon = self.points[pid]
+
+            pose = PoseStamped()
+            pose.header.frame_id = "map"
+            pose.pose.position.x = float(lat)
+            pose.pose.position.y = float(lon)
+            path_msg.poses.append(pose)
+
+            gps_waypoints.append([lat, lon])
+
+        # Publish path
+        self.path_pub.publish(path_msg)
+
+        # Save GPS waypoints
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+        filename = f"path_{timestamp}.npy"
+        np.save(filename, np.array(gps_waypoints, dtype=float))
+
+        self.get_logger().info(f"✅ Path published and saved to {filename}")
+
+    def goal_callback(self, msg: NavSatFix):
+        """Handle new goal: plan path and save last goal for auto-replanning."""
+        self.last_goal = (msg.latitude, msg.longitude)
+        self.get_logger().info("🎯 New goal received → auto-replan enabled.")
+
+        if self.current_pose is None:
+            self.get_logger().warn("⚠️ No current GPS yet, ignoring initial planning.")
+            return
+
+        start_idx = self.find_nearest_node(self.current_pose[0], self.current_pose[1])
+        goal_idx = self.find_nearest_node(msg.latitude, msg.longitude)
+
+        self.get_logger().info(f"Planning path from {start_idx} → {goal_idx}")
+
+        path = self.plan_path(start_idx, goal_idx)
+        if path:
+            self.publish_path(path)
+
+    def replan_timer_cb(self):
+        """Recompute the path every 10 seconds if a goal exists."""
+        if self.current_pose is None or self.last_goal is None:
+            return
+
+        start_idx = self.find_nearest_node(self.current_pose[0], self.current_pose[1])
+        goal_idx = self.find_nearest_node(self.last_goal[0], self.last_goal[1])
+
+        self.get_logger().info(f"[TIMER] Re-planning path {start_idx} → {goal_idx}")
+
+        path = self.plan_path(start_idx, goal_idx)
+        if path:
+            self.publish_path(path)
+
+
+def main():
+    rclpy.init()
+    node = GlobalPlanner()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()
