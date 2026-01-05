@@ -10,7 +10,11 @@ from collections import deque
 import time
 import os
 
+<<<<<<< HEAD
 DIST_THRESHOLD = 13.0
+=======
+DIST_THRESHOLD = 14.0
+>>>>>>> 99e42f1b5afba58871f9e8a64178714b79893877
 MAX_DIST_THRESHOLD = 24.0
 from pino_msgs.msg import AudioMSG   # adjust package name if different
 
@@ -55,7 +59,11 @@ class FarPlanner(Node):
         self.replan_pub = self.create_publisher(Bool, 'replan_request', 10)
 
         # Timer
+<<<<<<< HEAD
         self.create_timer(0.25, self.timer_callback)
+=======
+        self.create_timer(0.25, self.timer_callback)  # 1 Hz (change to 0.2 for 5 Hz)
+>>>>>>> 99e42f1b5afba58871f9e8a64178714b79893877
 
         # Setup log file
         log_dir = os.path.expanduser("~/javis_ws/far_planner_logs")
@@ -63,7 +71,11 @@ class FarPlanner(Node):
         self.waypoint_file = open(os.path.join(log_dir, "waypoints_log.txt"), "a")
         self.last_replan_request_time = 0.0
 
+<<<<<<< HEAD
         self.get_logger().info("✅ FarPlanner node started.")
+=======
+        self.get_logger().info("✅ FarPlanner node started (logging to ~/far_planner_logs/waypoints_log.txt).")
+>>>>>>> 99e42f1b5afba58871f9e8a64178714b79893877
 
     def behavior_callback(self, msg: Int32):
         behavior_mode = msg.data
@@ -71,22 +83,33 @@ class FarPlanner(Node):
             self.goal_queue.clear()
 
     def path_callback(self, msg: Path):
+<<<<<<< HEAD
         """Receive a Path message from global planner and fill the goal queue."""
         self.get_logger().info("📥 New path received → clearing old waypoints.")
         self.goal_queue.clear()
 
+=======
+        """Receive a Path message from global planner and fill the goal queue with GPS points."""
+        self.goal_queue.clear()
+>>>>>>> 99e42f1b5afba58871f9e8a64178714b79893877
         for pose in msg.poses:
             lat = pose.pose.position.x  # stored as lat
             lon = pose.pose.position.y  # stored as lon
             self.goal_queue.append((lat, lon))
+<<<<<<< HEAD
 
+=======
+>>>>>>> 99e42f1b5afba58871f9e8a64178714b79893877
         if self.goal_queue:
             self.get_logger().info(f"📥 Received path with {len(self.goal_queue)} waypoints.")
 
     def gps_callback(self, msg: NavSatFix):
         self.robot_lat = msg.latitude
         self.robot_lon = msg.longitude
+<<<<<<< HEAD
 
+=======
+>>>>>>> 99e42f1b5afba58871f9e8a64178714b79893877
         try:
             lat, lon = msg.latitude, msg.longitude
             now = time.time()
@@ -112,6 +135,10 @@ class FarPlanner(Node):
             self.get_logger().error(f"❌ Failed to parse GPS NavSatFix: {e}")
 
     def odom_callback(self, msg: Odometry):
+<<<<<<< HEAD
+=======
+        # Extract yaw from quaternion
+>>>>>>> 99e42f1b5afba58871f9e8a64178714b79893877
         q = msg.pose.pose.orientation
         siny_cosp = 2 * (q.w * q.z + q.x * q.y)
         cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
@@ -127,9 +154,16 @@ class FarPlanner(Node):
         return x, y
 
     def _request_replan(self, reason: str):
+<<<<<<< HEAD
         now_sec = self.get_clock().now().nanoseconds / 1e9
         if now_sec - self.last_replan_request_time < 1.0:
             return
+=======
+        """Notify the global planner to recompute the path."""
+        now_sec = self.get_clock().now().nanoseconds / 1e9
+        if now_sec - self.last_replan_request_time < 1.0:
+            return  # throttle repeated requests
+>>>>>>> 99e42f1b5afba58871f9e8a64178714b79893877
         self.last_replan_request_time = now_sec
         self.get_logger().warn(f"{reason} → requesting global replanning.")
         msg = Bool()
@@ -140,7 +174,11 @@ class FarPlanner(Node):
         if not self.goal_queue or self.robot_lat is None:
             return
 
+<<<<<<< HEAD
         # If GPS unstable → send forward command
+=======
+        # If GPS unstable, send fixed forward command
+>>>>>>> 99e42f1b5afba58871f9e8a64178714b79893877
         if not self.gps_stable:
             wp_msg = PointStamped()
             wp_msg.header.stamp = self.get_clock().now().to_msg()
@@ -163,10 +201,29 @@ class FarPlanner(Node):
 
         msg = Bool()
 
+<<<<<<< HEAD
         # Waypoint reached logic
         if dist < DIST_THRESHOLD:
             self.get_logger().info(f"🎯 Reached waypoint ({goal_lat:.6f}, {goal_lon:.6f}), distance={dist:.2f}m")
             while True:
+=======
+        # if dist < DIST_THRESHOLD:
+        #     self.get_logger().info(f"🎯 Reached waypoint ({goal_lat:.6f}, {goal_lon:.6f}), distance={dist:.2f}m")
+            
+        #     self.goal_queue.popleft()
+        #     if not self.goal_queue:
+        #         self.get_logger().info("✅ Path completed, no more waypoints.")
+        #         msg.data = True
+        #         self.goal_reached_pub.publish(msg)
+        #         return
+        #     else:
+        #         goal_lat, goal_lon = self.goal_queue[0]
+        #         self.get_logger().info(f"➡️ Next waypoint: ({goal_lat:.6f}, {goal_lon:.6f})")
+
+        if dist < DIST_THRESHOLD: # or dist > MAX_DIST_THRESHOLD:
+            self.get_logger().info(f"🎯 Reached waypoint ({goal_lat:.6f}, {goal_lon:.6f}), distance={dist:.2f}m")
+            while(True):
+>>>>>>> 99e42f1b5afba58871f9e8a64178714b79893877
                 self.goal_queue.popleft()
                 if not self.goal_queue:
                     self.get_logger().info("✅ Path completed, no more waypoints.")
@@ -177,9 +234,14 @@ class FarPlanner(Node):
                     goal_lat, goal_lon = self.goal_queue[0]
                     self.get_logger().info(f"➡️ Next waypoint: ({goal_lat:.6f}, {goal_lon:.6f})")
                     next_dist = haversine_distance(self.robot_lat, self.robot_lon, goal_lat, goal_lon)
+<<<<<<< HEAD
                     if next_dist > DIST_THRESHOLD:
                         break
 
+=======
+                    if( (next_dist > DIST_THRESHOLD) ):
+                        break
+>>>>>>> 99e42f1b5afba58871f9e8a64178714b79893877
         msg.data = False
         self.goal_reached_pub.publish(msg)
 
@@ -187,13 +249,21 @@ class FarPlanner(Node):
         dx, dy = self.latlon_to_local(self.robot_lat, self.robot_lon, goal_lat, goal_lon)
         raw_x_robot = dx * math.cos(-self.robot_yaw) - dy * math.sin(-self.robot_yaw)
         raw_y_robot = dx * math.sin(-self.robot_yaw) + dy * math.cos(-self.robot_yaw)
+<<<<<<< HEAD
 
         # Log raw goal
+=======
+        x_robot = raw_x_robot
+        y_robot = raw_y_robot
+
+        # Save to file
+>>>>>>> 99e42f1b5afba58871f9e8a64178714b79893877
         ts = self.get_clock().now().to_msg()
         self.waypoint_file.write(f"{ts.sec}.{ts.nanosec}, {raw_x_robot:.3f}, {raw_y_robot:.3f}, {dist:.3f}\n")
         self.waypoint_file.flush()
         self.get_logger().info(f"raw goal = {raw_x_robot:.2f} , {raw_y_robot:.2f} , dist: {dist:.2f}")
 
+<<<<<<< HEAD
         # ❗ NEW LOGIC: If goal behind robot → just go forward
         if raw_x_robot < -1.0:
             self.get_logger().warn("⚠️ Goal behind robot (x < -1). Forcing forward movement (4,0).")
@@ -218,6 +288,15 @@ class FarPlanner(Node):
         # Rotation correction
         if abs(y_robot) > abs(x_robot):
             if y_robot > 0:
+=======
+        if raw_x_robot < 0:
+            self._request_replan("Negative local goal x detected")
+
+        x_robot = abs(x_robot)
+
+        if abs(y_robot) > abs(x_robot):
+            if(y_robot > 0):
+>>>>>>> 99e42f1b5afba58871f9e8a64178714b79893877
                 x_robot = 4.0
                 y_robot = 2.0
             else:
