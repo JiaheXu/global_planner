@@ -3,20 +3,17 @@ from rclpy.node import Node
 from sensor_msgs.msg import NavSatFix
 from nav_msgs.msg import Path as NavPath
 from geometry_msgs.msg import PoseStamped
-<<<<<<< HEAD
-=======
+
 from std_msgs.msg import Bool
->>>>>>> 99e42f1b5afba58871f9e8a64178714b79893877
+
 import math
 import heapq
 import numpy as np
 from datetime import datetime
 from pathlib import Path
-<<<<<<< HEAD
-import pickle
-=======
 
->>>>>>> 99e42f1b5afba58871f9e8a64178714b79893877
+import pickle
+
 
 class GlobalPlanner(Node):
     def __init__(self):
@@ -28,16 +25,11 @@ class GlobalPlanner(Node):
         # Subscribers
         self.create_subscription(NavSatFix, '/gps_raw', self.gps_callback, 10)
         self.create_subscription(NavSatFix, 'nav_goal', self.goal_callback, 10)
-<<<<<<< HEAD
-
-        # Load precomputed graph
-        config_dir = Path('~/javis_ws/src/global_planner/global_planner').expanduser()
-=======
         self.create_subscription(Bool, 'replan_request', self.replan_callback, 10)
 
         # Load precomputed graph
         config_dir = Path('~/javis_ws/src/global_planner/config').expanduser()
->>>>>>> 99e42f1b5afba58871f9e8a64178714b79893877
+
         points_path = config_dir / 'points.npy'
         neighbors_path = config_dir / 'neighbors.npy'
 
@@ -49,7 +41,6 @@ class GlobalPlanner(Node):
             self.get_logger().fatal(message)
             raise FileNotFoundError(message)
 
-<<<<<<< HEAD
         self.points = np.load(points_path, allow_pickle=True)
         self.neighbors = np.load(neighbors_path, allow_pickle=True)
 
@@ -60,13 +51,7 @@ class GlobalPlanner(Node):
         self.create_timer(3.0, self.replan_timer_cb)
         self.get_logger().info("⏱️ Auto-replan timer started (10s)")
 
-=======
-        self.points = np.load(points_path)
-        self.neighbors = np.load(neighbors_path, allow_pickle=True)
 
-        self.current_pose = None
-        self.current_goal = None
->>>>>>> 99e42f1b5afba58871f9e8a64178714b79893877
         self.get_logger().info("✅ GlobalPlanner started. Listening for nav_goal.")
 
     def gps_callback(self, msg: NavSatFix):
@@ -123,11 +108,6 @@ class GlobalPlanner(Node):
 
         for pid in path_ids:
             lat, lon = self.points[pid]
-
-<<<<<<< HEAD
-=======
-            # Fill PoseStamped with lon as x, lat as y
->>>>>>> 99e42f1b5afba58871f9e8a64178714b79893877
             pose = PoseStamped()
             pose.header.frame_id = "map"
             pose.pose.position.x = float(lat)
@@ -139,11 +119,6 @@ class GlobalPlanner(Node):
         # Publish path
         self.path_pub.publish(path_msg)
 
-<<<<<<< HEAD
-        # Save GPS waypoints
-=======
-        # Save GPS waypoints to .npy file with timestamp
->>>>>>> 99e42f1b5afba58871f9e8a64178714b79893877
         timestamp = datetime.now().strftime("%Y%m%d_%H%M")
         filename = f"path_{timestamp}.npy"
         np.save(filename, np.array(gps_waypoints, dtype=float))
@@ -151,7 +126,6 @@ class GlobalPlanner(Node):
         self.get_logger().info(f"✅ Path published and saved to {filename}")
 
     def goal_callback(self, msg: NavSatFix):
-<<<<<<< HEAD
         """Handle new goal: plan path and save last goal for auto-replanning."""
         self.last_goal = (msg.latitude, msg.longitude)
         self.get_logger().info("🎯 New goal received → auto-replan enabled.")
@@ -182,45 +156,7 @@ class GlobalPlanner(Node):
         path = self.plan_path(start_idx, goal_idx)
         if path:
             self.publish_path(path)
-=======
-        """Handle new goal: plan path and publish it."""
-        self.current_goal = (msg.latitude, msg.longitude)
-        if not self._plan_and_publish("new goal"):
-            self.get_logger().warn(f"⚠️ Unable to plan path to goal ({msg.latitude}, {msg.longitude}).")
 
-    def replan_callback(self, msg: Bool):
-        """Handle replan requests from downstream planners."""
-        if not msg.data:
-            return
-        if self.current_goal is None:
-            self.get_logger().warn("⚠️ Replan requested but no goal is set.")
-            return
-        self.get_logger().info("♻️ Replan request received; recomputing path.")
-        self._plan_and_publish("replan request")
-
-    def _plan_and_publish(self, reason: str) -> bool:
-        """Plan a path with the current pose/goal and publish it."""
-        if self.current_pose is None:
-            self.get_logger().warn("⚠️ No current GPS yet, cannot plan.")
-            return False
-        if self.current_goal is None:
-            self.get_logger().warn("⚠️ No goal available, cannot plan.")
-            return False
-
-        goal_lat, goal_lon = self.current_goal
-        start_idx = self.find_nearest_node(self.current_pose[0], self.current_pose[1])
-        goal_idx = self.find_nearest_node(goal_lat, goal_lon)
-
-        self.get_logger().info(f"Planning path ({reason}) from {start_idx} → {goal_idx}")
-
-        path = self.plan_path(start_idx, goal_idx)
-        if not path:
-            self.get_logger().warn(f"⚠️ No path found to goal ({goal_lat}, {goal_lon})")
-            return False
-
-        self.publish_path(path)
-        return True
->>>>>>> 99e42f1b5afba58871f9e8a64178714b79893877
 
 
 def main():
